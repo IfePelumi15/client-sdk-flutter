@@ -11,7 +11,6 @@ buildscript {
     dependencies {
         classpath("com.android.tools.build:gradle:8.1.0")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
-        api "com.google.mlkit:barcode-scanning:17.2.0"
     }
 }
 
@@ -32,6 +31,10 @@ android {
 
     compileSdk = 34
 
+    defaultConfig {
+        minSdk = 21
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
@@ -46,26 +49,19 @@ android {
         test.java.srcDirs += "src/test/kotlin"
     }
 
-    defaultConfig {
-        minSdk = 21
-    }
-
-    dependencies {
-        testImplementation("org.jetbrains.kotlin:kotlin-test")
-        testImplementation("org.mockito:mockito-core:5.0.0")
-        implementation 'io.github.webrtc-sdk:android:137.7151.04'
-        implementation 'io.livekit:noise:2.0.0'
-    }
-
     testOptions {
         unitTests.all {
             useJUnitPlatform()
-
-            testLogging {
-               events "passed", "skipped", "failed", "standardOut", "standardError"
-               outputs.upToDateWhen {false}
-               showStandardStreams = true
-            }
         }
     }
+}
+
+/* 🔥 THIS MUST BE HERE — OUTSIDE android {} */
+dependencies {
+    testImplementation "org.jetbrains.kotlin:kotlin-test"
+    testImplementation "org.mockito:mockito-core:5.0.0"
+
+    api "io.github.webrtc-sdk:android:137.7151.04"
+    api "io.livekit:noise:2.0.0"
+    api "com.google.mlkit:barcode-scanning:17.2.0"
 }
