@@ -11,7 +11,7 @@ buildscript {
     dependencies {
         classpath("com.android.tools.build:gradle:8.1.0")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version")
-        implementation "com.google.mlkit:barcode-scanning:17.2.0"
+        api "com.google.mlkit:barcode-scanning:17.2.0"
     }
 }
 
