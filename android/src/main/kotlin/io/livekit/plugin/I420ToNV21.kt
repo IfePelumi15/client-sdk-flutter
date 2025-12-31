@@ -1,4 +1,4 @@
-package io.livekit.flutter
+package io.livekit.plugin
 
 import org.webrtc.VideoFrame
 import java.nio.ByteBuffer
