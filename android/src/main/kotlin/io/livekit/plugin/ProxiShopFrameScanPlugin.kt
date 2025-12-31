@@ -1,90 +1,75 @@
-package io.livekit.flutter
+package io.livekit.plugin
 
 import android.util.Log
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.webrtc.VideoFrame
-import org.webrtc.VideoSink
-import java.util.concurrent.atomic.AtomicBoolean
+import java.nio.ByteBuffer
 
-class ProxiShopFrameScanPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
+class ProxiShopFrameScanPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
-  private lateinit var mc: MethodChannel
-  private lateinit var ec: EventChannel
-  private var sink: EventChannel.EventSink? = null
+    private lateinit var channel: MethodChannel
 
-  private val enabled = AtomicBoolean(false)
-  private var throttleMs: Long = 300
-  private var last = 0L
-  private val scanner = BarcodeScanning.getClient()
-
-  val videoSink = VideoSink { frame: VideoFrame ->
-    if (!enabled.get()) return@VideoSink
-    val now = System.currentTimeMillis()
-    if (now - last < throttleMs) return@VideoSink
-    last = now
-
-    try {
-      val buf = frame.buffer.toI420()
-      val bytes = I420ToNV21.convert(buf)
-      buf.release()
-
-      val img = InputImage.fromByteArray(
-        bytes,
-        frame.buffer.width,
-        frame.buffer.height,
-        frame.rotation,
-        InputImage.IMAGE_FORMAT_NV21
-      )
-
-      scanner.process(img)
-        .addOnSuccessListener {
-          if (it.isNotEmpty()) sink?.success(it[0].rawValue)
-        }
-        .addOnFailureListener {
-          Log.w("ProxiScan", it.message ?: "")
-        }
-
-    } catch (e: Exception) {
-      Log.w("ProxiScan", e.message ?: "")
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        channel = MethodChannel(binding.binaryMessenger, "proxishop/frame_scan")
+        channel.setMethodCallHandler(this)
+        LiveKitFrameScanRegistry.register(::onFrame)
     }
-  }
 
-  override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-    mc = MethodChannel(binding.binaryMessenger, "proxishop/livekit_frame_scan")
-    ec = EventChannel(binding.binaryMessenger, "proxishop/livekit_frame_scan_events")
-    mc.setMethodCallHandler(this)
-    ec.setStreamHandler(this)
-    LiveKitFrameScanRegistry.plugin = this
-  }
-
-  override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-    LiveKitFrameScanRegistry.plugin = null
-  }
-
-  override fun onMethodCall(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
-    when (call.method) {
-      "start" -> {
-        throttleMs = (call.argument<Int>("throttleMs") ?: 300).toLong()
-        enabled.set(true)
-        result.success(true)
-      }
-      "stop" -> {
-        enabled.set(false)
-        result.success(true)
-      }
-      else -> result.notImplemented()
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        LiveKitFrameScanRegistry.unregister()
     }
-  }
 
-  override fun onListen(args: Any?, events: EventChannel.EventSink?) {
-    sink = events
-  }
+    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        result.success(null)
+    }
 
-  override fun onCancel(args: Any?) {
-    sink = null
-  }
+    // 🔥 Called for every LiveKit video frame
+    private fun onFrame(frame: VideoFrame) {
+        val buffer = frame.buffer.toI420()
+        if (buffer == null) return
+
+        try {
+            val width = buffer.width
+            val height = buffer.height
+
+            val yBuffer: ByteBuffer = buffer.dataY
+            val uBuffer: ByteBuffer = buffer.dataU
+            val vBuffer: ByteBuffer = buffer.dataV
+
+            val nv21 = I420ToNV21.convert(
+                yBuffer, uBuffer, vBuffer,
+                buffer.strideY, buffer.strideU, buffer.strideV,
+                width, height
+            )
+
+            val image = InputImage.fromByteArray(
+                nv21,
+                width,
+                height,
+                0,
+                InputImage.IMAGE_FORMAT_NV21
+            )
+
+            val scanner = BarcodeScanning.getClient()
+            scanner.process(image)
+                .addOnSuccessListener { barcodes ->
+                    for (b in barcodes) {
+                        val payload = mapOf(
+                            "barcode" to b.rawValue,
+                            "format" to b.format,
+                            "confidence" to 1.0
+                        )
+                        channel.invokeMethod("barcode", payload)
+                    }
+                }
+        } catch (e: Exception) {
+            Log.e("ProxiShopScan", "Scan failed", e)
+        } finally {
+            buffer.release()
+        }
+    }
 }
